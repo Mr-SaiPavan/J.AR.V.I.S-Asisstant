@@ -1,8 +1,10 @@
 venv/
 __pycache__/
 *.pyc
-.env
+models/
 chroma_db/
-jarvis_memory/
+data/
+screenshots/
 *.wav
 *.mp3
+*.png
