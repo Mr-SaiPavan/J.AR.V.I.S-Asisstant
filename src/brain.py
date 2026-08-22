@@ -10,49 +10,65 @@ console = Console()
 SYSTEM_PROMPT = """You are J.A.R.V.I.S., a witty, concise, and sophisticated AI assistant.
 Keep spoken conversational responses to 1-2 sharp sentences.
 
-You have access to real-time system and live web tools. When the user asks for actions or live data, reply ONLY with a single JSON object:
+You have access to real-time system and live web tools. When the user asks for actions, routines, or live data, reply ONLY with a single JSON object:
 {"tool": "<tool_name>", "argument": "<argument>"}
 
 Available Tools:
-- "get_live_weather" (argument: "<city name or blank>") -> Current weather and temperature.
-- "get_live_web_facts" (argument: "<search keywords>") -> Fetches latest real-time facts/news from the web.
-- "get_system_status" (argument: "") -> CPU, RAM, and battery stats.
-- "set_brightness" (argument: "<0-100>") -> Sets screen brightness percentage.
-- "set_volume" (argument: "<0-100>") -> Sets master volume percentage.
-- "toggle_mute" (argument: "") -> Mutes/unmutes audio.
-- "lock_workstation" (argument: "") -> Locks PC screen.
-- "take_screenshot" (argument: "") -> Captures full screen.
-- "open_application" (argument: exact app name e.g. "brave", "chrome", "notepad", "calculator", "vscode", "terminal")
+- "get_morning_briefing" (argument: "") -> Gives daily briefing (time, weather, battery, notes).
+- "add_note" (argument: "<note content>") -> Appends note to scratchpad.
+- "read_notes" (argument: "") -> Reads recent notes.
+- "start_focus_session" (argument: "<minutes or 25>") -> Enters focus mode (Pomodoro timer + display dimming).
+- "launch_workspace" (argument: "<code | night | media>") -> Triggers workspace presets.
+- "convert_units" (argument: "<math or conversion query>") -> Evaluates math and storage/timezone conversions.
+- "get_current_time" (argument: "") -> Returns current time and date.
+- "set_timer" (argument: "<duration e.g. '5 minutes'>") -> Starts countdown timer.
+- "media_play_pause" (argument: "") -> Plays/pauses media playback.
+- "media_next" (argument: "") -> Next song.
+- "media_prev" (argument: "") -> Previous song.
+- "get_live_weather" (argument: "<city or blank>") -> Current weather.
+- "get_live_web_facts" (argument: "<query>") -> Live web search.
+- "get_system_status" (argument: "") -> CPU, RAM, battery.
+- "set_brightness" (argument: "<0-100>")
+- "set_volume" (argument: "<0-100>")
+- "toggle_mute" (argument: "")
+- "lock_workstation" (argument: "")
+- "take_screenshot" (argument: "")
+- "open_application" (argument: "<app name>")
 - "open_github" (argument: "")
 - "open_youtube" (argument: "<query or blank>")
-- "search_web" (argument: "<query>") -> Opens search in default web browser.
+- "search_web" (argument: "<query>")
 
 Examples:
-- "What's the weather in Pitapuram?" -> {"tool": "get_live_weather", "argument": "Pitapuram"}
-- "Who won the latest F1 race?" -> {"tool": "get_live_web_facts", "argument": "latest F1 race winner"}
-- "Lock my PC" -> {"tool": "lock_workstation", "argument": ""}
+- "Jarvis, morning briefing" -> {"tool": "get_morning_briefing", "argument": ""}
+- "Note down: study segment trees tonight" -> {"tool": "add_note", "argument": "study segment trees tonight"}
+- "Read my notes" -> {"tool": "read_notes", "argument": ""}
+- "Start a 25 minute focus session" -> {"tool": "start_focus_session", "argument": "25"}
+- "Code mode" -> {"tool": "launch_workspace", "argument": "code"}
+- "Night mode" -> {"tool": "launch_workspace", "argument": "night"}
+- "Convert 32 GB to MB" -> {"tool": "convert_units", "argument": "32 gb to mb"}
 
 If context is provided under [CONTEXT], synthesize a concise answer.
 If no tool is required, reply directly with your normal conversational response in plain text.
 """
 
 class JarvisBrain:
-    def __init__(self, model: str = "qwen2.5:3b", max_history: int = 8):
+    def __init__(self, model: str = "qwen2.5:3b", max_history: int = 8, voice_engine=None):
         self.model = model
-        self.tools = JarvisTools()
+        self.tools = JarvisTools(voice_engine=voice_engine)
         self.rag = JarvisRAG()
         self.max_history = max_history
         self.history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
+    def set_voice_engine(self, voice_engine):
+        self.tools.voice = voice_engine
+
     def ask(self, prompt: str) -> str:
         try:
-            # 1. Semantic Check in Local RAG
             rag_context = self.rag.search(prompt, top_k=2)
             augmented_prompt = prompt
             if rag_context:
                 augmented_prompt = f"[LOCAL NOTES CONTEXT]:\n{rag_context}\n\n[USER QUERY]: {prompt}"
 
-            # 2. Append turn to memory
             self.history.append({"role": "user", "content": augmented_prompt})
 
             if len(self.history) > (self.max_history * 2 + 1):
@@ -64,7 +80,6 @@ class JarvisBrain:
             )
             raw_reply = response["message"]["content"].strip()
 
-            # 3. Tool Execution
             json_match = re.search(r"\{.*?\}", raw_reply, re.DOTALL)
             if json_match:
                 try:
@@ -74,20 +89,39 @@ class JarvisBrain:
 
                     tool_output = ""
 
-                    if tool_name == "get_live_weather":
-                        console.print(f"[bold magenta]⚡ Executing Tool:[/bold magenta] [cyan]get_live_weather({arg})[/cyan]")
+                    # Daily Life Tools
+                    if tool_name == "get_morning_briefing":
+                        tool_output = self.tools.get_morning_briefing()
+                    elif tool_name == "add_note":
+                        tool_output = self.tools.add_note(arg)
+                    elif tool_name == "read_notes":
+                        tool_output = self.tools.read_notes()
+                    elif tool_name == "start_focus_session":
+                        tool_output = self.tools.start_focus_session(arg)
+                    elif tool_name == "launch_workspace":
+                        tool_output = self.tools.launch_workspace(arg)
+                    elif tool_name == "convert_units":
+                        tool_output = self.tools.convert_units(arg)
+                    elif tool_name == "get_current_time":
+                        tool_output = self.tools.get_current_time()
+                    elif tool_name == "set_timer":
+                        tool_output = self.tools.set_timer(arg)
+                    elif tool_name in ["media_play_pause", "play_pause"]:
+                        tool_output = self.tools.media_play_pause()
+                    elif tool_name in ["media_next", "next_track"]:
+                        tool_output = self.tools.media_next()
+                    elif tool_name in ["media_prev", "prev_track"]:
+                        tool_output = self.tools.media_prev()
+                    elif tool_name == "get_live_weather":
                         tool_output = self.tools.get_live_weather(arg)
-
                     elif tool_name == "get_live_web_facts":
-                        console.print(f"[bold magenta]⚡ Executing Tool:[/bold magenta] [cyan]get_live_web_facts({arg})[/cyan]")
                         search_snippets = self.tools.get_live_web_facts(arg)
-                        grounded_prompt = f"[LIVE WEB RESULTS]:\n{search_snippets}\n\nAnswer concisely in 1-2 spoken sentences: {prompt}"
-                        summary_res = ollama.chat(
+                        grounded_prompt = f"[LIVE WEB RESULTS]:\n{search_snippets}\n\nAnswer in 1-2 spoken sentences: {prompt}"
+                        res = ollama.chat(
                             model=self.model,
                             messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": grounded_prompt}]
                         )
-                        tool_output = summary_res["message"]["content"].strip()
-
+                        tool_output = res["message"]["content"].strip()
                     elif tool_name == "get_system_status":
                         tool_output = self.tools.get_system_status()
                     elif tool_name == "set_brightness":
@@ -111,7 +145,7 @@ class JarvisBrain:
                         tool_output = self.tools.open_youtube(arg)
 
                     if tool_output:
-                        # Append the response to conversational history to break repetition loops
+                        console.print(f"[bold magenta]⚡ Executed Routine:[/bold magenta] [cyan]{tool_name}({arg})[/cyan]")
                         self.history.append({"role": "assistant", "content": tool_output})
                         return tool_output
 

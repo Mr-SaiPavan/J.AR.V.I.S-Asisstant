@@ -28,8 +28,8 @@ def run_jarvis():
 
     wake_detector = JarvisWakeWord()
     ears = JarvisEars()
-    brain = JarvisBrain()
     voice = JarvisVoice()
+    brain = JarvisBrain(voice_engine=voice)  # Voice engine will be set after initialization
 
     voice.speak("J.A.R.V.I.S. is initialized and standing by.")
 
