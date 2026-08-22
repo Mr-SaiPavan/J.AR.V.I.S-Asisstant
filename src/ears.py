@@ -1,6 +1,4 @@
-import io
 import time
-import wave
 import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
@@ -9,93 +7,73 @@ from rich.console import Console
 console = Console()
 
 class JarvisEars:
-    def __init__(self, model_size: str = "small.en"):
-        console.print(f"[cyan]Loading Whisper model ({model_size}) on CPU (int8)...[/cyan]")
-        self.model = WhisperModel(
-            model_size,
-            device="cpu",
-            compute_type="int8",
+    def __init__(self, model_size: str = "small.en", device: str = "cpu", compute_type: str = "int8"):
+        console.print(f"[cyan]Initializing High-Precision Ears ({model_size} int8)...[/cyan]")
+        
+        # small.en with multi-threaded CTranslate2 backend
+        self.whisper = WhisperModel(
+            model_size, 
+            device=device, 
+            compute_type=compute_type,
             cpu_threads=4
         )
-        console.print("[green]✓ Speech recognition engine ready![/green]")
 
         self.sample_rate = 16000
         self.block_size = 1024
-        self.prompt_context = "Jarvis, J.A.R.V.I.S., computer, artificial intelligence, assistant."
+        self.energy_threshold = 0.025
+        self.initial_prompt = "Jarvis, AI, RAG, ChromaDB, CUDA, LLM, Python, C++, terminal, Kakinada, Pithapuram, Rajahmundry, volume, brightness."
+        console.print("[green]✓ High-precision ears (small.en) ready.[/green]")
 
-    def listen_and_transcribe(
-        self,
-        silence_limit: float = 1.0,
-        energy_threshold: float = 0.035,  # Raised threshold to ignore fan/room noise
-        max_duration: float = 12.0,
-        listen_timeout: float = 5.0      # Fast exit if nobody starts speaking
-    ) -> str:
-        """
-        Dynamically captures audio. Starts recording only when speech exceeds 
-        the noise floor, and returns empty quickly if nobody speaks.
-        """
+    def listen_and_transcribe(self, max_duration: int = 15, silence_limit: float = 0.7) -> str:
         audio_buffer = []
-        is_speaking = False
-        silence_start = None
+        is_recording = False
+        silence_start_time = None
         start_time = time.time()
 
         with sd.InputStream(samplerate=self.sample_rate, channels=1, dtype="float32", blocksize=self.block_size) as stream:
             while True:
                 data, _ = stream.read(self.block_size)
-                energy = float(np.sqrt(np.mean(data ** 2)))
-                elapsed_total = time.time() - start_time
+                chunk = data.flatten()
+                energy = float(np.sqrt(np.mean(chunk ** 2)))
 
-                if not is_speaking:
-                    # If silence persists past listen_timeout, yield back to main loop
-                    if elapsed_total > listen_timeout:
-                        return ""
+                if energy > self.energy_threshold:
+                    if not is_recording:
+                        console.print("[bold green]● Listening...[/bold green]", end="\r")
+                        is_recording = True
+                    audio_buffer.append(chunk)
+                    silence_start_time = None
+                elif is_recording:
+                    audio_buffer.append(chunk)
+                    if silence_start_time is None:
+                        silence_start_time = time.time()
+                    elif time.time() - silence_start_time > silence_limit:
+                        break
 
-                    # True speech onset
-                    if energy > energy_threshold:
-                        is_speaking = True
-                        silence_start = None
-                        console.print("[bold green]● Speech detected... recording[/bold green]")
-                        audio_buffer.append(data)
-                else:
-                    audio_buffer.append(data)
-
-                    # Track pause
-                    if energy < energy_threshold:
-                        if silence_start is None:
-                            silence_start = time.time()
-                        elif time.time() - silence_start >= silence_limit:
-                            console.print("[dim]Pause detected. Transcribing...[/dim]")
-                            break
-                    else:
-                        silence_start = None
-
-                if elapsed_total >= max_duration:
+                if is_recording and (time.time() - start_time > max_duration):
                     break
+                
+                if not is_recording and (time.time() - start_time > 4.0):
+                    return ""
 
-        if not audio_buffer:
+        if not audio_buffer or not is_recording:
             return ""
 
-        # Normalize gain
-        raw_audio = np.concatenate(audio_buffer, axis=0).flatten()
-        max_val = np.max(np.abs(raw_audio))
-        if max_val > 0:
-            raw_audio = (raw_audio / max_val) * 0.95
+        audio_data = np.concatenate(audio_buffer, axis=0)
 
-        pcm_data = (raw_audio * 32767).astype(np.int16)
+        # Discard sub-0.35s taps or clicks
+        if len(audio_data) < self.sample_rate * 0.35:
+            return ""
 
-        wav_buffer = io.BytesIO()
-        with wave.open(wav_buffer, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(self.sample_rate)
-            wf.writeframes(pcm_data.tobytes())
-        wav_buffer.seek(0)
-
-        segments, _ = self.model.transcribe(
-            wav_buffer,
-            beam_size=5,
-            initial_prompt=self.prompt_context,
-            vad_filter=True
+        console.print("[dim cyan]Transcribing...[/dim cyan]", end="\r")
+        
+        # High-precision transcription with native C++ VAD segmenter
+        segments, _ = self.whisper.transcribe(
+            audio_data,
+            beam_size=3,
+            initial_prompt=self.initial_prompt,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=400),
+            temperature=0.0
         )
-        text = " ".join([segment.text.strip() for segment in segments]).strip()
-        return text
+        
+        return " ".join([seg.text for seg in segments]).strip()

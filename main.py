@@ -1,3 +1,8 @@
+import warnings
+# Silence NumPy / sounddevice deprecation warnings in the terminal
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=ResourceWarning)
+
 import threading
 import time
 import sounddevice as sd
@@ -16,7 +21,7 @@ def run_jarvis():
     console.print(
         Panel.fit(
             "[bold cyan]J.A.R.V.I.S. AUTONOMOUS VOICE SYSTEM[/bold cyan]\n"
-            "[dim]Barge-In Active | Local RAG | Multi-Turn Memory | Piper Paul Bettany TTS[/dim]",
+            "[dim]Live Grounding | Barge-In Active | Local RAG | Paul Bettany TTS[/dim]",
             border_style="cyan"
         )
     )
@@ -90,7 +95,7 @@ def run_jarvis():
                 voice.speak("Powering down. Have a good day, sir.")
                 break
 
-            # 4. Contextual processing (RAG + Tools + LLM)
+            # 4. Contextual processing (RAG + Live Tools + LLM)
             response = brain.ask(user_speech)
 
             # 5. Spoken neural response with barge-in support
